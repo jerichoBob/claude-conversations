@@ -1,0 +1,23 @@
+#!/bin/bash
+# Claude Conversations CLI entry point
+# Uses the virtual environment installed in the same directory
+
+# Resolve symlinks to get the real script location
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
+
+if [ -x "$VENV_PYTHON" ]; then
+    exec "$VENV_PYTHON" -m claude_conversations.cli "$@"
+else
+    echo "Error: Virtual environment not found. Run:"
+    echo "  python3 -m venv $SCRIPT_DIR/.venv"
+    echo "  $SCRIPT_DIR/.venv/bin/pip install -e $SCRIPT_DIR"
+    exit 1
+fi
