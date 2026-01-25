@@ -21,7 +21,7 @@ python3 -m venv .venv
 
 # Search conversations
 ./claude-conversations search "query"
-./claude-conversations search "auth" --project "*welo*"
+./claude-conversations search "auth" --project "*my-webapp*"
 
 # Browse
 ./claude-conversations projects
@@ -35,16 +35,20 @@ python3 -m venv .venv
 
 ## Architecture
 
-**Data flow**: `~/.claude/projects/` (JSONL files) → `parser.py` → `index.py` → SQLite FTS5 index → `search.py` → `formatter.py` → `cli.py`
+**Data flow**: `~/.claude/projects/` (JSONL files) → `core/` → SQLite FTS5 index → `cli/` or `api/`
 
-**Core modules** in `src/claude_conversations/`:
+**Core library** (`core/`) - no CLI/web dependencies:
 - `parser.py` - Parses JSONL conversation files into `Session`/`Message`/`CodeBlock` dataclasses
 - `index.py` - Builds and maintains SQLite FTS5 index at `~/.claude-conversations/index.db`
 - `search.py` - Query interface with `SearchResult`, `SessionInfo`, `ProjectInfo` dataclasses
-- `formatter.py` - Rich terminal output (tables, syntax highlighting, markdown)
-- `cli.py` - Click command handlers
 
-**Entry point**: The `claude-conversations` bash script runs `python -m claude_conversations.cli`
+**CLI** (`cli/`) - terminal interface:
+- `main.py` - Click command handlers
+- `formatter.py` - Rich terminal output (tables, syntax highlighting, markdown)
+
+**API** (`api/`) - for web apps (Streamlit, Next.js, etc.)
+
+**Entry point**: The `claude-conversations` bash script runs `python -m cli.main`
 
 ## Key Design Decisions
 

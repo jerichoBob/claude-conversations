@@ -20,10 +20,10 @@ Build a CLI tool that makes past Claude conversations searchable and extractable
 
 ```
 ~/.claude/projects/
-├── -Users-bseaton-Work-BUILT-git-repos-welo-data-annotation-platform/
+├── -Users-alice-Projects-my-webapp/
 │   ├── {session-uuid}.jsonl    # Conversation transcript
 │   └── ...
-├── -Users-bseaton-Play-github-repos-cvxr-card-flow/
+├── -Users-alice-Projects-data-pipeline/
 │   └── ...
 └── ...
 ```
@@ -44,7 +44,7 @@ Full-text search across all conversations.
 claude-conversations search "webhook"
 
 # Search with project filter
-claude-conversations search "authentication" --project "*welo*"
+claude-conversations search "authentication" --project "*webapp*"
 
 # Search only user messages
 claude-conversations search "how do I" --role user
@@ -55,10 +55,10 @@ claude-conversations search "import" --role assistant --type code
 
 **Output:**
 ```
-[welo-data-annotation-platform] 2024-01-15 session abc123
+[my-webapp] 2024-01-15 session abc123
   Line 847: "For webhook authentication, you'll want to..."
 
-[cvxr-card-flow] 2024-01-10 session def456
+[data-pipeline] 2024-01-10 session def456
   Line 234: "The webhook endpoint should validate..."
 
 Found 12 matches in 4 sessions
@@ -78,9 +78,9 @@ claude-conversations projects --stats
 ```
 Project                                    Sessions  Last Active
 ─────────────────────────────────────────────────────────────────
-welo-data-annotation-platform              23        2024-01-20
-hanger-cara-commercialization              5         2024-01-22
-cvxr-card-flow                             18        2024-01-18
+my-webapp                                  23        2024-01-20
+api-service                                5         2024-01-22
+data-pipeline                              18        2024-01-18
 ...
 ```
 
@@ -88,10 +88,10 @@ cvxr-card-flow                             18        2024-01-18
 List sessions for a project.
 
 ```bash
-claude-conversations sessions welo-data-annotation-platform
+claude-conversations sessions my-webapp
 
 # With summaries (uses first user message as title)
-claude-conversations sessions welo-data-annotation-platform --summary
+claude-conversations sessions my-webapp --summary
 ```
 
 ### `claude-conversations read <session-id>`
@@ -149,7 +149,7 @@ claude-conversations stats
 Total projects: 28
 Total sessions: 156
 Total messages: 12,847
-Most active project: welo-data-annotation-platform (23 sessions)
+Most active project: my-webapp (23 sessions)
 Date range: 2024-01-01 to 2024-01-22
 ```
 
@@ -193,17 +193,23 @@ For fast searching:
 ## File Structure
 
 ```
-~/bin/claude-conversations/
+claude-conversations/
 ├── SPEC.md                 # This file
-├── claude-conversations    # Main CLI script
-├── requirements.txt        # Python dependencies
-├── src/
+├── claude-conversations    # Bash entry point
+├── pyproject.toml          # Python project config
+├── core/                   # Core library (no CLI/web deps)
 │   ├── __init__.py
-│   ├── cli.py             # CLI commands
 │   ├── parser.py          # JSONL parsing
 │   ├── index.py           # SQLite indexing
-│   ├── search.py          # Search functionality
-│   └── formatter.py       # Output formatting
+│   └── search.py          # Search functionality
+├── cli/                    # CLI interface
+│   ├── __init__.py
+│   ├── main.py            # Click commands
+│   └── formatter.py       # Rich terminal output
+├── api/                    # FastAPI server (for web apps)
+│   └── __init__.py
+├── skill/                  # Claude Code skill
+│   └── ...
 └── tests/
     └── ...
 ```
@@ -222,9 +228,9 @@ rich>=13.0
    claude-conversations search "rate limiting" --type code
    ```
 
-2. **"What did we discuss in the welo project?"**
+2. **"What did we discuss in the webapp project?"**
    ```bash
-   claude-conversations sessions welo* --summary
+   claude-conversations sessions my-webapp* --summary
    ```
 
 3. **"Extract that auth middleware I wrote"**

@@ -6,8 +6,9 @@ import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from . import index, search, formatter
-from .parser import extract_code_blocks, get_projects_dir
+from core import index, search
+from core.parser import extract_code_blocks, get_projects_dir
+from . import formatter
 
 
 console = Console()
@@ -33,7 +34,7 @@ def search_cmd(query, project, role, limit):
 
     Examples:
         claude-conversations search "webhook"
-        claude-conversations search "authentication" --project "*welo*"
+        claude-conversations search "authentication" --project "*webapp*"
         claude-conversations search "how do I" --role user
     """
     try:
@@ -77,7 +78,7 @@ def sessions(project, summary, limit):
 
     Examples:
         claude-conversations sessions
-        claude-conversations sessions welo* --summary
+        claude-conversations sessions my-webapp* --summary
         claude-conversations sessions "*annotation*" -n 20
     """
     try:
