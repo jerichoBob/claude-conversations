@@ -5,6 +5,7 @@ A terminal tool to search, explore, and extract from Claude Code conversation hi
 ## Problem
 
 The `~/.claude/projects/` folder contains valuable conversation transcripts (JSONL files) from past Claude Code sessions. This includes:
+
 - Solutions to problems you've solved before
 - Code snippets and implementations
 - Architectural decisions and rationale
@@ -18,7 +19,7 @@ Build a CLI tool that makes past Claude conversations searchable and extractable
 
 ## Data Structure
 
-```
+```text
 ~/.claude/projects/
 ├── -Users-alice-Projects-my-webapp/
 │   ├── {session-uuid}.jsonl    # Conversation transcript
@@ -29,6 +30,7 @@ Build a CLI tool that makes past Claude conversations searchable and extractable
 ```
 
 Each `.jsonl` file contains conversation turns with:
+
 - User messages
 - Assistant responses
 - Tool calls and results
@@ -37,6 +39,7 @@ Each `.jsonl` file contains conversation turns with:
 ## Commands
 
 ### `claude-conversations search <query>`
+
 Full-text search across all conversations.
 
 ```bash
@@ -54,7 +57,8 @@ claude-conversations search "import" --role assistant --type code
 ```
 
 **Output:**
-```
+
+```text
 [my-webapp] 2024-01-15 session abc123
   Line 847: "For webhook authentication, you'll want to..."
 
@@ -65,6 +69,7 @@ Found 12 matches in 4 sessions
 ```
 
 ### `claude-conversations projects`
+
 List all projects with session counts and date ranges.
 
 ```bash
@@ -75,7 +80,8 @@ claude-conversations projects --stats
 ```
 
 **Output:**
-```
+
+```text
 Project                                    Sessions  Last Active
 ─────────────────────────────────────────────────────────────────
 my-webapp                                  23        2024-01-20
@@ -85,6 +91,7 @@ data-pipeline                              18        2024-01-18
 ```
 
 ### `claude-conversations sessions <project>`
+
 List sessions for a project.
 
 ```bash
@@ -95,6 +102,7 @@ claude-conversations sessions my-webapp --summary
 ```
 
 ### `claude-conversations read <session-id>`
+
 Read a specific session transcript.
 
 ```bash
@@ -112,6 +120,7 @@ claude-conversations read abc123 | less
 ```
 
 ### `claude-conversations extract <session-id>`
+
 Extract specific content from a session.
 
 ```bash
@@ -129,6 +138,7 @@ claude-conversations extract abc123 --tools Write
 ```
 
 ### `claude-conversations recent`
+
 Show recent sessions across all projects.
 
 ```bash
@@ -140,6 +150,7 @@ claude-conversations recent -n 20 --summary
 ```
 
 ### `claude-conversations stats`
+
 Show usage statistics.
 
 ```bash
@@ -156,43 +167,51 @@ Date range: 2024-01-01 to 2024-01-22
 ## Implementation Options
 
 ### Option A: Python CLI (Recommended)
+
 - Use `click` or `typer` for CLI framework
 - Use `rich` for terminal formatting
 - SQLite index for fast searching (built on first run)
 - Incremental index updates
 
 ### Option B: Claude Code Skill
+
 - `/conversations search <query>`
 - Runs within Claude Code context
 - Can directly reference/load past solutions
 
 ### Option C: Both
+
 - Python CLI for terminal use
 - Skill that wraps the CLI for in-session use
 
 ## Technical Considerations
 
 ### JSONL Parsing
+
 Each line in a session file is a JSON object. Need to handle:
+
 - Message roles (user, assistant, system)
 - Tool calls and results
 - Content blocks (text, code, images)
 - Timestamps and metadata
 
 ### Search Index
+
 For fast searching:
+
 1. Build SQLite FTS5 index on first run
 2. Store: session_id, project, timestamp, role, content, line_number
 3. Incremental updates for new sessions
 
 ### Privacy
+
 - Tool only reads local files
 - No data sent anywhere
 - Index stored locally in `~/.claude-conversations/`
 
 ## File Structure
 
-```
+```text
 claude-conversations/
 ├── SPEC.md                 # This file
 ├── claude-conversations    # Bash entry point
@@ -208,15 +227,15 @@ claude-conversations/
 │   └── formatter.py       # Rich terminal output
 ├── api/                    # FastAPI server (for web apps)
 │   └── __init__.py
-├── skill/                  # Claude Code skill
-│   └── ...
+├── .claude/skills/c3po/    # Claude Code skill (works on clone)
+│   └── SKILL.md
 └── tests/
     └── ...
 ```
 
 ## Dependencies
 
-```
+```text
 click>=8.0
 rich>=13.0
 ```
@@ -224,21 +243,25 @@ rich>=13.0
 ## Example Use Cases
 
 1. **"How did I solve X before?"**
+
    ```bash
    claude-conversations search "rate limiting" --type code
    ```
 
 2. **"What did we discuss in the webapp project?"**
+
    ```bash
    claude-conversations sessions my-webapp* --summary
    ```
 
 3. **"Extract that auth middleware I wrote"**
+
    ```bash
    claude-conversations extract abc123 --code typescript
    ```
 
 4. **"What projects have I worked on this week?"**
+
    ```bash
    claude-conversations recent -n 50 | grep "2024-01-2"
    ```
