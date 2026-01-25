@@ -77,6 +77,10 @@ Builds a SQLite FTS5 index of your conversation history for fast full-text searc
 
 ## Changelog
 
+### 0.2.1
+
+- Add project-level `.markdownlint.json` for consistent IDE linting
+
 ### 0.2.0
 
 - **Architecture refactoring**: Reorganized from `src/claude_conversations/` to modular structure:

@@ -1,6 +1,6 @@
 """Claude Conversations - Search and explore Claude Code conversation history."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from . import parser, index, search
 
