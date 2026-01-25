@@ -38,11 +38,13 @@ python3 -m venv .venv
 **Data flow**: `~/.claude/projects/` (JSONL files) → `core/` → SQLite FTS5 index → `cli/` or `api/`
 
 **Core library** (`core/`) - no CLI/web dependencies:
+
 - `parser.py` - Parses JSONL conversation files into `Session`/`Message`/`CodeBlock` dataclasses
 - `index.py` - Builds and maintains SQLite FTS5 index at `~/.claude-conversations/index.db`
 - `search.py` - Query interface with `SearchResult`, `SessionInfo`, `ProjectInfo` dataclasses
 
 **CLI** (`cli/`) - terminal interface:
+
 - `main.py` - Click command handlers
 - `formatter.py` - Rich terminal output (tables, syntax highlighting, markdown)
 

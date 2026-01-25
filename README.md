@@ -75,6 +75,25 @@ See [SPEC.md](SPEC.md) for detailed command documentation.
 
 Builds a SQLite FTS5 index of your conversation history for fast full-text search. Index lives at `~/.claude-conversations/index.db`. Everything stays local - no data leaves your machine.
 
+## Claude Code Skill
+
+The `/c3po` skill is included in `.claude/skills/` - it works immediately after cloning.
+
+**Manual invocation:**
+
+```text
+/c3po find that rate limiting code I wrote
+/c3po what projects have I worked on recently
+```
+
+**Auto-invocation:** Claude will also use this skill automatically when you ask about past solutions, code you wrote before, or previous discussions.
+
+To make it available globally (all projects):
+
+```bash
+cp -r .claude/skills/c3po ~/.claude/skills/
+```
+
 ## Changelog
 
 ### 0.2.1
@@ -87,7 +106,7 @@ Builds a SQLite FTS5 index of your conversation history for fast full-text searc
   - `core/` - Core library (parser, index, search) with no CLI dependencies
   - `cli/` - Terminal interface
   - `api/` - FastAPI server placeholder for web apps
-  - `skill/` - Claude Code skill placeholder
+  - `.claude/skills/` - Claude Code skill (works on clone, auto-invokes)
 
 ### 0.1.2
 
