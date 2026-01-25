@@ -73,5 +73,8 @@ Builds a SQLite FTS5 index of your conversation history for fast full-text searc
 
 ## Changelog
 
+### 0.1.2
+- Expand README with use cases and human-friendly descriptions
+
 ### 0.1.1
 - Add CLAUDE.md with project guidance for Claude Code
