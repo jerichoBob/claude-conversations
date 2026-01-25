@@ -73,6 +73,13 @@ Builds a SQLite FTS5 index of your conversation history for fast full-text searc
 
 ## Changelog
 
+### 0.2.0
+- **Architecture refactoring**: Reorganized from `src/claude_conversations/` to modular structure:
+  - `core/` - Core library (parser, index, search) with no CLI dependencies
+  - `cli/` - Terminal interface
+  - `api/` - FastAPI server placeholder for web apps
+  - `skill/` - Claude Code skill placeholder
+
 ### 0.1.2
 - Expand README with use cases and human-friendly descriptions
 
