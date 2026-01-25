@@ -18,22 +18,26 @@ This tool fixes that.
 ## Use Cases
 
 **"I solved this exact problem before..."**
+
 ```bash
 claude-conversations search "rate limiting"
 ```
 
 **"What was that code I wrote for my webapp?"**
+
 ```bash
 claude-conversations sessions my-webapp* --summary
 claude-conversations extract abc123 --code python
 ```
 
 **"Show me everything from this week"**
+
 ```bash
 claude-conversations recent -n 20
 ```
 
 **"Export that session as markdown for documentation"**
+
 ```bash
 claude-conversations read abc123 --format md > session.md
 ```
@@ -74,6 +78,7 @@ Builds a SQLite FTS5 index of your conversation history for fast full-text searc
 ## Changelog
 
 ### 0.2.0
+
 - **Architecture refactoring**: Reorganized from `src/claude_conversations/` to modular structure:
   - `core/` - Core library (parser, index, search) with no CLI dependencies
   - `cli/` - Terminal interface
@@ -81,7 +86,9 @@ Builds a SQLite FTS5 index of your conversation history for fast full-text searc
   - `skill/` - Claude Code skill placeholder
 
 ### 0.1.2
+
 - Expand README with use cases and human-friendly descriptions
 
 ### 0.1.1
+
 - Add CLAUDE.md with project guidance for Claude Code
