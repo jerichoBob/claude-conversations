@@ -96,6 +96,13 @@ cp -r .claude/skills/c3po ~/.claude/skills/
 
 ## Changelog
 
+### 0.3.0
+
+- **New**: `/c3po` skill for searching conversation history
+  - Auto-invokes when you ask about past solutions or code
+  - Manual invocation via `/c3po <query>`
+  - Works immediately after cloning (no install needed)
+
 ### 0.2.1
 
 - Add project-level `.markdownlint.json` for consistent IDE linting
