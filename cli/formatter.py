@@ -12,8 +12,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.syntax import Syntax
 
-from .parser import Session, CodeBlock, extract_code_blocks
-from .search import SearchResult, SessionInfo, ProjectInfo
+from core.parser import Session, CodeBlock, extract_code_blocks
+from core.search import SearchResult, SessionInfo, ProjectInfo
 
 
 console = Console()

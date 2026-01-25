@@ -62,7 +62,7 @@ class Session:
 def get_project_name(project_path: Path) -> str:
     """Extract a readable project name from the path-encoded directory name.
 
-    Converts '-Users-bseaton-Work-foo-bar' to 'foo-bar' (last component).
+    Converts '-Users-alice-Projects-foo-bar' to 'foo-bar' (last component).
     """
     name = project_path.name
     # Split on path separator encoding and take the last meaningful part

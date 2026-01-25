@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claude-conversations = "claude_conversations.cli:cli"
+claude-conversations = "cli.main:cli"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["core*", "cli*", "api*"]

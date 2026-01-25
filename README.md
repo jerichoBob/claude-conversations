@@ -22,9 +22,9 @@ This tool fixes that.
 claude-conversations search "rate limiting"
 ```
 
-**"What was that code I wrote for the welo project?"**
+**"What was that code I wrote for my webapp?"**
 ```bash
-claude-conversations sessions welo* --summary
+claude-conversations sessions my-webapp* --summary
 claude-conversations extract abc123 --code python
 ```
 

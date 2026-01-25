@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
 
 if [ -x "$VENV_PYTHON" ]; then
-    exec "$VENV_PYTHON" -m claude_conversations.cli "$@"
+    exec "$VENV_PYTHON" -m cli.main "$@"
 else
     echo "Error: Virtual environment not found. Run:"
     echo "  python3 -m venv $SCRIPT_DIR/.venv"
