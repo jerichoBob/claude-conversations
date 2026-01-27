@@ -1,17 +1,25 @@
 """Textual TUI for browsing Claude conversations."""
 
 from datetime import datetime
+from enum import Enum, auto
 from typing import Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.message import Message
+from textual.containers import Horizontal, VerticalScroll
+from textual.message import Message as TextualMessage
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
-from textual.css.query import NoMatches
 
 from core import search
+from core.parser import Message, Session
 from core.search import ProjectInfo, SessionInfo
+
+
+class ViewState(Enum):
+    """Current view state in the navigation hierarchy."""
+    PROJECTS = auto()
+    SESSIONS = auto()
+    MESSAGES = auto()
 
 
 def format_date(ts: Optional[str]) -> str:
@@ -72,6 +80,23 @@ class SessionItem(ListItem):
         )
 
 
+class MessageItem(ListItem):
+    """A message item in the messages list."""
+
+    def __init__(self, message: Message, index: int) -> None:
+        super().__init__()
+        self.message = message
+        self.index = index
+
+    def compose(self) -> ComposeResult:
+        role = "USER" if self.message.role == "user" else "ASST"
+        # Count tool uses if any
+        tool_count = len(self.message.tool_use)
+        tool_str = f" [{tool_count} tools]" if tool_count else ""
+        content_preview = truncate(self.message.content or "", 50)
+        yield Label(f"{self.index:>3}. {role}{tool_str}  {content_preview}")
+
+
 class SearchResultItem(ListItem):
     """A search result item."""
 
@@ -87,14 +112,14 @@ class SearchResultItem(ListItem):
 class ProjectsPane(ListView):
     """Pane showing all projects."""
 
-    class ProjectHighlighted(Message):
+    class ProjectHighlighted(TextualMessage):
         """Sent when a project is highlighted."""
 
         def __init__(self, project: ProjectInfo) -> None:
             super().__init__()
             self.project = project
 
-    class ProjectSelected(Message):
+    class ProjectSelected(TextualMessage):
         """Sent when a project is selected (Enter)."""
 
         def __init__(self, project: ProjectInfo) -> None:
@@ -128,47 +153,97 @@ class ProjectsPane(ListView):
             self.post_message(self.ProjectSelected(event.item.project))
 
 
-class SessionsPane(ListView):
-    """Pane showing sessions for selected project."""
+class ContentPane(ListView):
+    """Pane showing sessions or messages depending on view state."""
 
-    class SessionHighlighted(Message):
+    class SessionHighlighted(TextualMessage):
         """Sent when a session is highlighted."""
 
         def __init__(self, session: SessionInfo) -> None:
             super().__init__()
             self.session = session
 
-    class SessionSelected(Message):
+    class SessionSelected(TextualMessage):
         """Sent when a session is selected (Enter)."""
 
         def __init__(self, session: SessionInfo) -> None:
             super().__init__()
             self.session = session
 
+    class MessageHighlighted(TextualMessage):
+        """Sent when a message is highlighted."""
+
+        def __init__(self, message: Message, session: Session) -> None:
+            super().__init__()
+            self.message = message
+            self.session = session
+
+    class MessageSelected(TextualMessage):
+        """Sent when a message is selected (Enter)."""
+
+        def __init__(self, message: Message, session: Session) -> None:
+            super().__init__()
+            self.message = message
+            self.session = session
+
     def __init__(self) -> None:
-        super().__init__(id="sessions-pane")
+        super().__init__(id="content-pane")
         self._sessions: list[SessionInfo] = []
         self._current_project: Optional[str] = None
+        self._current_session: Optional[Session] = None
+        self._view_state = ViewState.SESSIONS
+
+    @property
+    def view_state(self) -> ViewState:
+        return self._view_state
 
     def load_sessions(self, project: str) -> None:
         """Load sessions for a project."""
-        if project == self._current_project:
+        if project == self._current_project and self._view_state == ViewState.SESSIONS:
             return
         self._current_project = project
+        self._current_session = None
+        self._view_state = ViewState.SESSIONS
         try:
             self._sessions = search.get_sessions(project=project, limit=200)
             self.clear()
             for session in self._sessions:
                 self.append(SessionItem(session))
-            # Update the border title
             self.border_title = f"Sessions ({project})"
         except RuntimeError:
             self.clear()
 
+    def load_messages(self, session_info: SessionInfo) -> None:
+        """Load messages for a session."""
+        self._view_state = ViewState.MESSAGES
+        try:
+            self._current_session = search.load_session(session_info.session_id)
+            self.clear()
+            for i, msg in enumerate(self._current_session.messages, 1):
+                self.append(MessageItem(msg, i))
+            self.border_title = f"Messages ({session_info.session_id[:8]}) - {len(self._current_session.messages)} msgs"
+        except (RuntimeError, ValueError) as e:
+            self.clear()
+            self.append(ListItem(Label(f"Error loading session: {e}")))
+
+    def go_back_to_sessions(self) -> bool:
+        """Go back to sessions view. Returns True if we were in messages view."""
+        if self._view_state == ViewState.MESSAGES and self._current_project:
+            self._view_state = ViewState.SESSIONS
+            self._current_session = None
+            self.clear()
+            for session in self._sessions:
+                self.append(SessionItem(session))
+            self.border_title = f"Sessions ({self._current_project})"
+            return True
+        return False
+
     def load_search_results(self, results: list[search.SearchResult]) -> None:
         """Load search results instead of sessions."""
         self._current_project = None
+        self._current_session = None
         self._sessions = []
+        self._view_state = ViewState.SESSIONS
         self.clear()
         for result in results:
             self.append(SearchResultItem(result))
@@ -177,8 +252,10 @@ class SessionsPane(ListView):
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if event.item and isinstance(event.item, SessionItem):
             self.post_message(self.SessionHighlighted(event.item.session))
+        elif event.item and isinstance(event.item, MessageItem):
+            if self._current_session:
+                self.post_message(self.MessageHighlighted(event.item.message, self._current_session))
         elif event.item and isinstance(event.item, SearchResultItem):
-            # Try to load session info for search results
             try:
                 session_info = search.get_session_by_id(event.item.result.session_id)
                 if session_info:
@@ -189,6 +266,9 @@ class SessionsPane(ListView):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.item and isinstance(event.item, SessionItem):
             self.post_message(self.SessionSelected(event.item.session))
+        elif event.item and isinstance(event.item, MessageItem):
+            if self._current_session:
+                self.post_message(self.MessageSelected(event.item.message, self._current_session))
         elif event.item and isinstance(event.item, SearchResultItem):
             try:
                 session_info = search.get_session_by_id(event.item.result.session_id)
@@ -198,17 +278,18 @@ class SessionsPane(ListView):
                 pass
 
 
-class PreviewPane(Static):
-    """Pane showing preview of selected session."""
+class PreviewPane(VerticalScroll):
+    """Pane showing preview of selected item with scrolling."""
 
     def __init__(self) -> None:
         super().__init__(id="preview-pane")
-        self._session: Optional[SessionInfo] = None
+        self._content = Static("Select an item to preview", id="preview-content")
+
+    def compose(self) -> ComposeResult:
+        yield self._content
 
     def show_session(self, session: SessionInfo) -> None:
         """Show session preview."""
-        self._session = session
-
         # Build tool usage summary
         tool_summary = ""
         try:
@@ -229,57 +310,43 @@ class PreviewPane(Static):
         preview_text = f"""Session {session.session_id[:8]} - {session.project} - {format_timestamp(session.start_time)}
 Messages: {session.message_count}{tool_summary}
 
-First message: "{truncate(session.first_message or '', 80)}" """
-        self.update(preview_text)
+First message: "{truncate(session.first_message or '', 80)}"
+
+Press Enter to view messages"""
+        self._content.update(preview_text)
+
+    def show_message(self, message: Message, session: Session) -> None:
+        """Show message preview with full content."""
+        role = "USER" if message.role == "user" else "ASSISTANT"
+
+        lines = []
+        lines.append(f"[{role}] {format_timestamp(message.timestamp)}")
+        lines.append(f"Session: {session.session_id[:8]} - {session.project}")
+        lines.append("-" * 60)
+
+        # Show content
+        if message.content:
+            # Limit content length for preview
+            content = message.content
+            if len(content) > 3000:
+                content = content[:3000] + "\n\n... (truncated, press Enter to copy full message)"
+            lines.append(content)
+
+        # Show tool usage summary
+        if message.tool_use:
+            lines.append("")
+            lines.append(f"--- Tool Calls ({len(message.tool_use)}) ---")
+            for tool in message.tool_use[:5]:  # Show first 5 tools
+                tool_name = tool.get("name", "unknown")
+                lines.append(f"  - {tool_name}")
+            if len(message.tool_use) > 5:
+                lines.append(f"  ... and {len(message.tool_use) - 5} more")
+
+        self._content.update("\n".join(lines))
 
     def clear_preview(self) -> None:
         """Clear the preview."""
-        self._session = None
-        self.update("Select a session to preview")
-
-
-class SessionDetailView(Static):
-    """Full session detail view."""
-
-    BINDINGS = [
-        Binding("escape", "close", "Back"),
-    ]
-
-    def __init__(self, session: SessionInfo) -> None:
-        super().__init__(id="session-detail")
-        self.session_info = session
-
-    def compose(self) -> ComposeResult:
-        try:
-            full_session = search.load_session(self.session_info.session_id)
-            lines = []
-            lines.append(
-                f"Session: {full_session.session_id} | Project: {full_session.project}"
-            )
-            lines.append(
-                f"Date: {format_timestamp(full_session.start_time)} | Messages: {full_session.message_count}"
-            )
-            lines.append("=" * 80)
-            lines.append("")
-
-            for msg in full_session.messages:
-                role = "USER" if msg.role == "user" else "ASSISTANT"
-                lines.append(f"[{role}] {format_timestamp(msg.timestamp)}")
-                lines.append("-" * 40)
-                if msg.content:
-                    # Truncate very long messages
-                    content = msg.content
-                    if len(content) > 2000:
-                        content = content[:2000] + "\n... (truncated)"
-                    lines.append(content)
-                lines.append("")
-
-            yield Label("\n".join(lines))
-        except (RuntimeError, ValueError) as e:
-            yield Label(f"Error loading session: {e}")
-
-    def action_close(self) -> None:
-        self.remove()
+        self._content.update("Select an item to preview")
 
 
 class ConversationBrowser(App):
@@ -298,17 +365,21 @@ class ConversationBrowser(App):
         border-title-color: $primary;
     }
 
-    #sessions-pane {
+    #content-pane {
         width: 1fr;
         border: solid $secondary;
         border-title-color: $secondary;
     }
 
     #preview-pane {
-        height: 6;
+        height: 12;
         border: solid $accent;
         border-title-color: $accent;
         padding: 0 1;
+    }
+
+    #preview-content {
+        width: 100%;
     }
 
     #search-container {
@@ -320,19 +391,15 @@ class ConversationBrowser(App):
         width: 1fr;
     }
 
-    #session-detail {
-        width: 100%;
-        height: 100%;
-        background: $surface;
-        padding: 1;
-        overflow-y: auto;
-    }
-
     ProjectItem {
         padding: 0 1;
     }
 
     SessionItem {
+        padding: 0 1;
+    }
+
+    MessageItem {
         padding: 0 1;
     }
 
@@ -351,7 +418,7 @@ class ConversationBrowser(App):
     def __init__(self) -> None:
         super().__init__()
         self._current_project: Optional[ProjectInfo] = None
-        self._in_detail_view = False
+        self._view_state = ViewState.PROJECTS
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -359,9 +426,9 @@ class ConversationBrowser(App):
             projects_pane = ProjectsPane()
             projects_pane.border_title = "Projects"
             yield projects_pane
-            sessions_pane = SessionsPane()
-            sessions_pane.border_title = "Sessions"
-            yield sessions_pane
+            content_pane = ContentPane()
+            content_pane.border_title = "Sessions"
+            yield content_pane
         preview_pane = PreviewPane()
         preview_pane.border_title = "Preview"
         yield preview_pane
@@ -374,32 +441,47 @@ class ConversationBrowser(App):
     ) -> None:
         """When a project is highlighted, load its sessions."""
         self._current_project = event.project
-        sessions_pane = self.query_one("#sessions-pane", SessionsPane)
-        sessions_pane.load_sessions(event.project.name)
+        content_pane = self.query_one("#content-pane", ContentPane)
+        content_pane.load_sessions(event.project.name)
+        self._view_state = ViewState.SESSIONS
 
     def on_projects_pane_project_selected(
         self, event: ProjectsPane.ProjectSelected
     ) -> None:
-        """When a project is selected, focus the sessions pane."""
-        sessions_pane = self.query_one("#sessions-pane", SessionsPane)
-        sessions_pane.focus()
+        """When a project is selected, focus the content pane."""
+        content_pane = self.query_one("#content-pane", ContentPane)
+        content_pane.focus()
 
-    def on_sessions_pane_session_highlighted(
-        self, event: SessionsPane.SessionHighlighted
+    def on_content_pane_session_highlighted(
+        self, event: ContentPane.SessionHighlighted
     ) -> None:
         """When a session is highlighted, show preview."""
         preview_pane = self.query_one("#preview-pane", PreviewPane)
         preview_pane.show_session(event.session)
 
-    def on_sessions_pane_session_selected(
-        self, event: SessionsPane.SessionSelected
+    def on_content_pane_session_selected(
+        self, event: ContentPane.SessionSelected
     ) -> None:
-        """When a session is selected, show full detail view."""
-        # For now, just show more in the preview
-        # A full detail view could be added later with scrolling
-        self.notify(
-            f"Session {event.session.session_id[:8]} - {event.session.message_count} messages"
-        )
+        """When a session is selected, load its messages."""
+        content_pane = self.query_one("#content-pane", ContentPane)
+        content_pane.load_messages(event.session)
+        self._view_state = ViewState.MESSAGES
+
+    def on_content_pane_message_highlighted(
+        self, event: ContentPane.MessageHighlighted
+    ) -> None:
+        """When a message is highlighted, show its content."""
+        preview_pane = self.query_one("#preview-pane", PreviewPane)
+        preview_pane.show_message(event.message, event.session)
+
+    def on_content_pane_message_selected(
+        self, event: ContentPane.MessageSelected
+    ) -> None:
+        """When a message is selected, show notification with details."""
+        role = "User" if event.message.role == "user" else "Assistant"
+        tool_count = len(event.message.tool_use)
+        tool_str = f", {tool_count} tool calls" if tool_count else ""
+        self.notify(f"{role} message{tool_str}")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle search input."""
@@ -409,10 +491,11 @@ class ConversationBrowser(App):
 
         try:
             results = search.search(query, limit=50)
-            sessions_pane = self.query_one("#sessions-pane", SessionsPane)
-            sessions_pane.load_search_results(results)
+            content_pane = self.query_one("#content-pane", ContentPane)
+            content_pane.load_search_results(results)
+            self._view_state = ViewState.SESSIONS
             if results:
-                sessions_pane.focus()
+                content_pane.focus()
                 self.notify(f"Found {len(results)} results")
             else:
                 self.notify("No results found", severity="warning")
@@ -429,26 +512,25 @@ class ConversationBrowser(App):
 
     def action_go_back(self) -> None:
         """Go back in navigation."""
-        # If detail view is shown, close it
-        try:
-            detail = self.query_one("#session-detail", SessionDetailView)
-            detail.remove()
-            self._in_detail_view = False
-            return
-        except NoMatches:
-            pass
+        content_pane = self.query_one("#content-pane", ContentPane)
 
-        # Otherwise focus projects pane
+        # If in messages view, go back to sessions
+        if content_pane.go_back_to_sessions():
+            self._view_state = ViewState.SESSIONS
+            return
+
+        # If in sessions view, focus projects pane
         projects_pane = self.query_one("#projects-pane", ProjectsPane)
         projects_pane.focus()
+        self._view_state = ViewState.PROJECTS
 
     def action_switch_pane(self) -> None:
-        """Switch focus between projects and sessions panes."""
+        """Switch focus between projects and content panes."""
         projects_pane = self.query_one("#projects-pane", ProjectsPane)
-        sessions_pane = self.query_one("#sessions-pane", SessionsPane)
+        content_pane = self.query_one("#content-pane", ContentPane)
 
         if projects_pane.has_focus:
-            sessions_pane.focus()
+            content_pane.focus()
         else:
             projects_pane.focus()
 
