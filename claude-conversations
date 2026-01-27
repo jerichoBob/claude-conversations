@@ -11,12 +11,12 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
-VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
+VENV_CLI="$SCRIPT_DIR/.venv/bin/claude-conversations"
 
-if [ -x "$VENV_PYTHON" ]; then
-    exec "$VENV_PYTHON" -m cli.main "$@"
+if [ -x "$VENV_CLI" ]; then
+    exec "$VENV_CLI" "$@"
 else
-    echo "Error: Virtual environment not found. Run:"
+    echo "Error: CLI not installed. Run:"
     echo "  python3 -m venv $SCRIPT_DIR/.venv"
     echo "  $SCRIPT_DIR/.venv/bin/pip install -e $SCRIPT_DIR"
     exit 1
