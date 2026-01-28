@@ -1,5 +1,7 @@
 """Textual TUI for browsing Claude conversations."""
 
+import fnmatch
+import re
 from datetime import datetime
 from enum import Enum, auto
 from typing import Optional
@@ -54,6 +56,31 @@ def truncate(text: str, max_len: int = 80) -> str:
     return text[: max_len - 3] + "..."
 
 
+def matches_filter(name: str, pattern: str) -> bool:
+    """Check if name matches the filter pattern.
+
+    Supports:
+    - Glob patterns with * (e.g., "BUILT-*", "*webapp*")
+    - Regex patterns starting with ~ (e.g., "~^BUILT-git-repos")
+    - Plain substring match otherwise
+    """
+    if not pattern:
+        return True
+
+    if pattern.startswith("~"):
+        # Regex pattern
+        try:
+            return bool(re.search(pattern[1:], name))
+        except re.error:
+            return False
+    elif "*" in pattern or "?" in pattern:
+        # Glob pattern
+        return fnmatch.fnmatch(name, pattern)
+    else:
+        # Substring match
+        return pattern.lower() in name.lower()
+
+
 class ProjectItem(ListItem):
     """A project item in the projects list."""
 
@@ -68,13 +95,17 @@ class ProjectItem(ListItem):
 class SessionItem(ListItem):
     """A session item in the sessions list."""
 
-    def __init__(self, session: SessionInfo) -> None:
+    def __init__(self, session: SessionInfo, max_width: int = 60) -> None:
         super().__init__()
         self.session = session
+        self._max_width = max_width
 
     def compose(self) -> ComposeResult:
         date = format_date(self.session.start_time)
-        summary = truncate(self.session.first_message or "", 40)
+        # Fixed prefix: "abc12345  Jan 24  123  " = 8 + 2 + 6 + 2 + 3 + 2 = 23 chars
+        prefix_len = 23
+        summary_width = max(10, self._max_width - prefix_len)
+        summary = truncate(self.session.first_message or "", summary_width)
         yield Label(
             f"{self.session.session_id[:8]}  {date}  {self.session.message_count:>3}  {summary}"
         )
@@ -83,30 +114,38 @@ class SessionItem(ListItem):
 class MessageItem(ListItem):
     """A message item in the messages list."""
 
-    def __init__(self, message: Message, index: int) -> None:
+    def __init__(self, message: Message, index: int, max_width: int = 60) -> None:
         super().__init__()
         self.message = message
         self.index = index
+        self._max_width = max_width
 
     def compose(self) -> ComposeResult:
         role = "USER" if self.message.role == "user" else "ASST"
         # Count tool uses if any
         tool_count = len(self.message.tool_use)
         tool_str = f" [{tool_count} tools]" if tool_count else ""
-        content_preview = truncate(self.message.content or "", 50)
+        # Prefix: "123. ASST [99 tools]  " varies, estimate ~25 chars max
+        prefix_len = 25
+        content_width = max(10, self._max_width - prefix_len)
+        content_preview = truncate(self.message.content or "", content_width)
         yield Label(f"{self.index:>3}. {role}{tool_str}  {content_preview}")
 
 
 class SearchResultItem(ListItem):
     """A search result item."""
 
-    def __init__(self, result: search.SearchResult) -> None:
+    def __init__(self, result: search.SearchResult, max_width: int = 60) -> None:
         super().__init__()
         self.result = result
+        self._max_width = max_width
 
     def compose(self) -> ComposeResult:
         snippet = self.result.snippet.replace(">>>", "").replace("<<<", "")
-        yield Label(f"[{self.result.project}] {truncate(snippet, 60)}")
+        # Account for "[project] " prefix
+        prefix_len = len(self.result.project) + 3
+        content_width = max(10, self._max_width - prefix_len)
+        yield Label(f"[{self.result.project}] {truncate(snippet, content_width)}")
 
 
 class ProjectsPane(ListView):
@@ -126,9 +165,10 @@ class ProjectsPane(ListView):
             super().__init__()
             self.project = project
 
-    def __init__(self) -> None:
+    def __init__(self, project_filter: Optional[str] = None) -> None:
         super().__init__(id="projects-pane")
         self._projects: list[ProjectInfo] = []
+        self._project_filter = project_filter
 
     def on_mount(self) -> None:
         self.load_projects()
@@ -136,10 +176,23 @@ class ProjectsPane(ListView):
     def load_projects(self) -> None:
         """Load projects from the search index."""
         try:
-            self._projects = search.get_projects()
+            all_projects = search.get_projects()
+            # Apply filter if specified
+            if self._project_filter:
+                self._projects = [
+                    p for p in all_projects
+                    if matches_filter(p.name, self._project_filter)
+                ]
+            else:
+                self._projects = all_projects
+
             self.clear()
             for project in self._projects:
                 self.append(ProjectItem(project))
+
+            # Update title to show filter
+            if self._project_filter:
+                self.border_title = f"Projects ({self._project_filter})"
         except RuntimeError:
             self.clear()
             self.append(ListItem(Label("Index not found. Run: claude-conversations reindex")))
@@ -197,6 +250,13 @@ class ContentPane(ListView):
     def view_state(self) -> ViewState:
         return self._view_state
 
+    def _get_content_width(self) -> int:
+        """Get the available width for content, accounting for borders and padding."""
+        # self.size.width gives the widget width
+        # Subtract 4 for borders (2) and padding (2)
+        width = self.size.width - 4 if self.size.width > 10 else 60
+        return max(20, width)
+
     def load_sessions(self, project: str) -> None:
         """Load sessions for a project."""
         if project == self._current_project and self._view_state == ViewState.SESSIONS:
@@ -207,8 +267,9 @@ class ContentPane(ListView):
         try:
             self._sessions = search.get_sessions(project=project, limit=200)
             self.clear()
+            width = self._get_content_width()
             for session in self._sessions:
-                self.append(SessionItem(session))
+                self.append(SessionItem(session, max_width=width))
             self.border_title = f"Sessions ({project})"
         except RuntimeError:
             self.clear()
@@ -219,8 +280,9 @@ class ContentPane(ListView):
         try:
             self._current_session = search.load_session(session_info.session_id)
             self.clear()
+            width = self._get_content_width()
             for i, msg in enumerate(self._current_session.messages, 1):
-                self.append(MessageItem(msg, i))
+                self.append(MessageItem(msg, i, max_width=width))
             self.border_title = f"Messages ({session_info.session_id[:8]}) - {len(self._current_session.messages)} msgs"
         except (RuntimeError, ValueError) as e:
             self.clear()
@@ -232,8 +294,9 @@ class ContentPane(ListView):
             self._view_state = ViewState.SESSIONS
             self._current_session = None
             self.clear()
+            width = self._get_content_width()
             for session in self._sessions:
-                self.append(SessionItem(session))
+                self.append(SessionItem(session, max_width=width))
             self.border_title = f"Sessions ({self._current_project})"
             return True
         return False
@@ -245,8 +308,9 @@ class ContentPane(ListView):
         self._sessions = []
         self._view_state = ViewState.SESSIONS
         self.clear()
+        width = self._get_content_width()
         for result in results:
-            self.append(SearchResultItem(result))
+            self.append(SearchResultItem(result, max_width=width))
         self.border_title = f"Search Results ({len(results)})"
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
@@ -415,15 +479,16 @@ class ConversationBrowser(App):
         Binding("tab", "switch_pane", "Switch Pane"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, project_filter: Optional[str] = None) -> None:
         super().__init__()
+        self._project_filter = project_filter
         self._current_project: Optional[ProjectInfo] = None
         self._view_state = ViewState.PROJECTS
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main"):
-            projects_pane = ProjectsPane()
+            projects_pane = ProjectsPane(project_filter=self._project_filter)
             projects_pane.border_title = "Projects"
             yield projects_pane
             content_pane = ContentPane()
@@ -535,9 +600,9 @@ class ConversationBrowser(App):
             projects_pane.focus()
 
 
-def main() -> None:
+def main(project_filter: Optional[str] = None) -> None:
     """Run the TUI application."""
-    app = ConversationBrowser()
+    app = ConversationBrowser(project_filter=project_filter)
     app.run()
 
 
