@@ -364,7 +364,8 @@ def recent(count, summary):
 
 
 @cli.command()
-def tui():
+@click.option("--project", "-p", help="Filter projects by pattern (glob, ~regex, or substring)")
+def tui(project):
     """Launch interactive TUI for browsing conversations.
 
     Provides an interactive terminal interface with:
@@ -373,11 +374,18 @@ def tui():
     - Search functionality (press / to focus search)
     - Keyboard shortcuts: q (quit), Tab (switch pane), Esc (back)
 
+    Project filter supports:
+    - Glob patterns: "BUILT-*", "*webapp*"
+    - Regex (prefix with ~): "~^BUILT-git-repos"
+    - Substring match: "webapp"
+
     Examples:
         claude-conversations tui
+        claude-conversations tui -p "BUILT-*"
+        claude-conversations tui --project "~^BUILT-git-repos"
     """
     from .tui import ConversationBrowser
-    app = ConversationBrowser()
+    app = ConversationBrowser(project_filter=project)
     app.run()
 
 
