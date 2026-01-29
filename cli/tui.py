@@ -121,15 +121,19 @@ class MessageItem(ListItem):
         self._max_width = max_width
 
     def compose(self) -> ComposeResult:
-        role = "USER" if self.message.role == "user" else "ASST"
+        # Color-coded roles: cyan for USER, green for ASST
+        if self.message.role == "user":
+            role = "[cyan]USER[/cyan]"
+        else:
+            role = "[green]ASST[/green]"
         # Count tool uses if any
         tool_count = len(self.message.tool_use)
-        tool_str = f" [{tool_count} tools]" if tool_count else ""
+        tool_str = f" [dim]\\[{tool_count} tools][/dim]" if tool_count else ""
         # Prefix: "123. ASST [99 tools]  " varies, estimate ~25 chars max
         prefix_len = 25
         content_width = max(10, self._max_width - prefix_len)
         content_preview = truncate(self.message.content or "", content_width)
-        yield Label(f"{self.index:>3}. {role}{tool_str}  {content_preview}")
+        yield Label(f"{self.index:>3}. {role}{tool_str}  {content_preview}", markup=True)
 
 
 class SearchResultItem(ListItem):
@@ -245,6 +249,8 @@ class ContentPane(ListView):
         self._current_project: Optional[str] = None
         self._current_session: Optional[Session] = None
         self._view_state = ViewState.SESSIONS
+        self._last_width: int = 0
+        self._search_results: list[search.SearchResult] = []
 
     @property
     def view_state(self) -> ViewState:
@@ -257,12 +263,44 @@ class ContentPane(ListView):
         width = self.size.width - 4 if self.size.width > 10 else 60
         return max(20, width)
 
+    def on_resize(self, event) -> None:
+        """Rebuild list items when pane is resized."""
+        new_width = self._get_content_width()
+        # Only rebuild if width changed significantly (more than 5 chars)
+        if abs(new_width - self._last_width) > 5:
+            self._last_width = new_width
+            self._rebuild_items()
+
+    def _rebuild_items(self) -> None:
+        """Rebuild current list items with new width."""
+        width = self._get_content_width()
+        # Remember current index
+        current_index = self.index
+
+        if self._view_state == ViewState.MESSAGES and self._current_session:
+            self.clear()
+            for i, msg in enumerate(self._current_session.messages, 1):
+                self.append(MessageItem(msg, i, max_width=width))
+        elif self._search_results:
+            self.clear()
+            for result in self._search_results:
+                self.append(SearchResultItem(result, max_width=width))
+        elif self._sessions:
+            self.clear()
+            for session in self._sessions:
+                self.append(SessionItem(session, max_width=width))
+
+        # Restore selection if possible
+        if current_index is not None and current_index < len(self.children):
+            self.index = current_index
+
     def load_sessions(self, project: str) -> None:
         """Load sessions for a project."""
         if project == self._current_project and self._view_state == ViewState.SESSIONS:
             return
         self._current_project = project
         self._current_session = None
+        self._search_results = []
         self._view_state = ViewState.SESSIONS
         try:
             self._sessions = search.get_sessions(project=project, limit=200)
@@ -306,6 +344,7 @@ class ContentPane(ListView):
         self._current_project = None
         self._current_session = None
         self._sessions = []
+        self._search_results = results
         self._view_state = ViewState.SESSIONS
         self.clear()
         width = self._get_content_width()
