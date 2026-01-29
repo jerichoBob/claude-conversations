@@ -6,6 +6,8 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Optional
 
+from rich.text import Text
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
@@ -102,13 +104,12 @@ class SessionItem(ListItem):
 
     def compose(self) -> ComposeResult:
         date = format_date(self.session.start_time)
-        # Fixed prefix: "abc12345  Jan 24  123  " = 8 + 2 + 6 + 2 + 3 + 2 = 23 chars
-        prefix_len = 23
-        summary_width = max(10, self._max_width - prefix_len)
-        summary = truncate(self.session.first_message or "", summary_width)
-        yield Label(
-            f"{self.session.session_id[:8]}  {date}  {self.session.message_count:>3}  {summary}"
-        )
+        # Build with Rich Text, let CSS handle overflow
+        text = Text()
+        text.append(f"{self.session.session_id[:8]}  {date}  {self.session.message_count:>3}  ")
+        summary = (self.session.first_message or "").replace("\n", " ").strip()
+        text.append(summary)
+        yield Label(text)
 
 
 class MessageItem(ListItem):
@@ -121,19 +122,28 @@ class MessageItem(ListItem):
         self._max_width = max_width
 
     def compose(self) -> ComposeResult:
-        # Color-coded roles: cyan for USER, green for ASST
+        # Build text with Rich Text for proper styling
+        text = Text()
+        text.append(f"{self.index:>3}. ")
+
+        # Color-coded roles
         if self.message.role == "user":
-            role = "[cyan]USER[/cyan]"
+            text.append("USER", style="cyan")
         else:
-            role = "[green]ASST[/green]"
-        # Count tool uses if any
+            text.append("ASST", style="green")
+
+        # Tool count
         tool_count = len(self.message.tool_use)
-        tool_str = f" [dim]\\[{tool_count} tools][/dim]" if tool_count else ""
-        # Prefix: "123. ASST [99 tools]  " varies, estimate ~25 chars max
-        prefix_len = 25
-        content_width = max(10, self._max_width - prefix_len)
-        content_preview = truncate(self.message.content or "", content_width)
-        yield Label(f"{self.index:>3}. {role}{tool_str}  {content_preview}", markup=True)
+        if tool_count:
+            text.append(f" [{tool_count} tools]", style="dim")
+
+        text.append("  ")
+
+        # Content - just clean it up, let CSS handle overflow
+        content = (self.message.content or "").replace("\n", " ").strip()
+        text.append(content)
+
+        yield Label(text)
 
 
 class SearchResultItem(ListItem):
@@ -146,10 +156,12 @@ class SearchResultItem(ListItem):
 
     def compose(self) -> ComposeResult:
         snippet = self.result.snippet.replace(">>>", "").replace("<<<", "")
-        # Account for "[project] " prefix
-        prefix_len = len(self.result.project) + 3
-        content_width = max(10, self._max_width - prefix_len)
-        yield Label(f"[{self.result.project}] {truncate(snippet, content_width)}")
+        snippet = snippet.replace("\n", " ").strip()
+        # Build with Rich Text, let CSS handle overflow
+        text = Text()
+        text.append(f"[{self.result.project}] ")
+        text.append(snippet)
+        yield Label(text)
 
 
 class ProjectsPane(ListView):
@@ -258,10 +270,20 @@ class ContentPane(ListView):
 
     def _get_content_width(self) -> int:
         """Get the available width for content, accounting for borders and padding."""
-        # self.size.width gives the widget width
-        # Subtract 4 for borders (2) and padding (2)
-        width = self.size.width - 4 if self.size.width > 10 else 60
-        return max(20, width)
+        # Try scrollable_content_region first (actual viewport width)
+        try:
+            region_width = self.scrollable_content_region.width
+            if region_width > 10:
+                # This is the actual usable width, no subtraction needed
+                return max(20, region_width)
+        except Exception:
+            pass
+
+        # Fallback: size.width - border(2) - scrollbar(2) = 4
+        # Item padding is handled by CSS, not our text length
+        if self.size.width > 10:
+            return max(20, self.size.width - 4)
+        return 60
 
     def on_resize(self, event) -> None:
         """Rebuild list items when pane is resized."""
@@ -508,6 +530,16 @@ class ConversationBrowser(App):
 
     SearchResultItem {
         padding: 0 1;
+    }
+
+    SessionItem Label, MessageItem Label, SearchResultItem Label, ProjectItem Label {
+        width: 100%;
+        overflow: hidden;
+    }
+
+    SessionItem, MessageItem, SearchResultItem {
+        height: 1;
+        overflow: hidden;
     }
     """
 
