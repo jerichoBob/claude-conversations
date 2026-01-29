@@ -1,7 +1,7 @@
 ---
 name: c3po
 description: Search and extract from Claude Code conversation history. Use when the user asks about past solutions, code they wrote before, previous discussions, or wants to find something from earlier sessions.
-allowed-tools: Bash, Read, Grep, AskUserQuestion
+allowed-tools: Bash, Read, Grep
 ---
 
 # Claude Conversations Skill
