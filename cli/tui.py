@@ -12,8 +12,8 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.message import Message as TextualMessage
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
-from core import search
-from core.parser import Message, Session
+from core import index, search
+from core.parser import Message, Session, get_projects_dir
 from core.search import ProjectInfo, SessionInfo
 
 
@@ -477,6 +477,7 @@ class ConversationBrowser(App):
         Binding("/", "focus_search", "Search"),
         Binding("escape", "go_back", "Back"),
         Binding("tab", "switch_pane", "Switch Pane"),
+        Binding("r", "reindex", "Reindex"),
     ]
 
     def __init__(self, project_filter: Optional[str] = None) -> None:
@@ -598,6 +599,25 @@ class ConversationBrowser(App):
             content_pane.focus()
         else:
             projects_pane.focus()
+
+    def action_reindex(self) -> None:
+        """Reindex conversations and reload projects."""
+        self.notify("Reindexing conversations...")
+        self.run_worker(self._do_reindex, exclusive=True)
+
+    async def _do_reindex(self) -> None:
+        """Worker to perform reindex in background."""
+        try:
+            projects_dir = get_projects_dir()
+            indexed, skipped = index.build_index(projects_dir=projects_dir, force=False)
+
+            # Reload projects pane
+            projects_pane = self.query_one("#projects-pane", ProjectsPane)
+            projects_pane.load_projects()
+
+            self.notify(f"Reindexed {indexed} sessions ({skipped} unchanged)")
+        except Exception as e:
+            self.notify(f"Reindex failed: {e}", severity="error")
 
 
 def main(project_filter: Optional[str] = None) -> None:
