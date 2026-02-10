@@ -91,6 +91,8 @@ See [SPEC.md](SPEC.md) for detailed command documentation.
 
 Launch a full interactive browser for navigating projects, sessions, and messages.
 
+![TUI Screenshot](public/claude-conversations-tui-1.png)
+
 ```bash
 # Launch TUI
 claude-conversations tui
@@ -102,6 +104,7 @@ claude-conversations tui -p "webapp"                      # substring match
 ```
 
 **Navigation:**
+
 - Arrow keys to browse projects and sessions
 - `Tab` to switch between panes
 - `/` to focus search
