@@ -1,5 +1,6 @@
 """Search functionality using the FTS5 index."""
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,24 @@ from typing import Optional
 
 from .index import get_db_path, init_db
 from .parser import parse_session, Session
+
+
+def sanitize_fts_query(query: str) -> str:
+    """Sanitize a query string for FTS5.
+
+    Removes or escapes special FTS5 syntax characters that could cause errors.
+    Preserves quoted phrases and basic word matching.
+    """
+    # Remove problematic characters that aren't valid FTS5 operators
+    # but could cause syntax errors
+    # Keep: alphanumeric, spaces, quotes (for phrases), * (for prefix), - (for NOT)
+    # Remove: ? ^ ~ and other invalid syntax
+    query = re.sub(r'[?^~]', ' ', query)
+
+    # Collapse multiple spaces
+    query = re.sub(r'\s+', ' ', query).strip()
+
+    return query
 
 
 @dataclass
@@ -80,6 +99,11 @@ def search(
     """
     conn = ensure_index(db_path)
 
+    # Sanitize the query to prevent FTS5 syntax errors
+    safe_query = sanitize_fts_query(query)
+    if not safe_query:
+        return []
+
     # Build the query
     # Use snippet() to get highlighted excerpts
     sql = """
@@ -94,7 +118,7 @@ def search(
         FROM messages
         WHERE messages MATCH ?
     """
-    params = [query]
+    params = [safe_query]
 
     if project:
         # Convert glob pattern to SQL LIKE
@@ -123,11 +147,16 @@ def search(
                 snippet=row["snippet"],
             ))
     except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
+        error_msg = str(e)
+        if "no such table" in error_msg:
             raise RuntimeError(
                 "Search index not found. Run 'claude-conversations reindex' first."
             )
-        raise
+        if "fts5: syntax error" in error_msg or "malformed MATCH" in error_msg:
+            raise RuntimeError(
+                f"Invalid search query. Special characters like ? * \" may need escaping. Error: {error_msg}"
+            )
+        raise RuntimeError(f"Search error: {error_msg}")
 
     conn.close()
     return results
