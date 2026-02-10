@@ -164,6 +164,100 @@ Most active project: my-webapp (23 sessions)
 Date range: 2024-01-01 to 2024-01-22
 ```
 
+### `claude-conversations tui`
+
+Launch an interactive terminal UI for browsing conversations.
+
+```bash
+# Launch TUI
+claude-conversations tui
+
+# With project filter (glob, regex, substring)
+claude-conversations tui -p "BUILT-*"
+claude-conversations tui --project "~^BUILT-git-repos"
+claude-conversations tui -p "webapp"
+```
+
+**Features:**
+
+- Hierarchical navigation: projects → sessions → messages
+- Preview pane showing session summaries and message content
+- Search functionality (press `/` to focus search input)
+- Project filtering: glob patterns (`*webapp*`), regex (prefix with `~`), substring match
+
+**Keyboard shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| Arrow keys | Navigate list items |
+| `Tab` | Switch between panes |
+| `/` | Focus search |
+| `Esc` | Go back / close |
+| `q` | Quit |
+
+### `claude-conversations analyze`
+
+Analyze a session or project for patterns and statistics.
+
+```bash
+# Session-level analysis
+claude-conversations analyze abc12345
+
+# Project-level analysis
+claude-conversations analyze --project "*webapp*"
+claude-conversations analyze --project cvxr-card-flow
+```
+
+**Output includes:**
+
+- Tool usage breakdown (counts per tool)
+- Files modified (Write/Edit operations)
+- Commands run (Bash tool calls)
+- Date range and message counts
+- Most modified files (project-level)
+- Recent sessions preview (project-level)
+
+Used by the `/c3po` skill for interactive exploration.
+
+### `claude-conversations rag-analyze`
+
+AI-powered analysis of conversation history using a multi-agent system.
+
+Requires `ANTHROPIC_API_KEY` in `.env` file.
+
+```bash
+# Run analysis
+claude-conversations rag-analyze "How did I implement auth?"
+claude-conversations rag-analyze "Compare risk-analysis flow" -p "*webapp*"
+
+# List saved analyses
+claude-conversations rag-analyze --list
+
+# Show a specific saved analysis
+claude-conversations rag-analyze --show abc12345
+
+# Use a specific model
+claude-conversations rag-analyze "query" --model claude-sonnet-4-20250514
+```
+
+**How it works:**
+
+1. **Coordinator agent** decomposes the query into search terms and an analysis prompt
+2. **Search** retrieves relevant sessions from the FTS5 index
+3. **Chunking** splits large sessions into token-bounded chunks (50k tokens each)
+4. **Specialist agents** analyze each chunk against the enriched prompt
+5. **Comparison** (if needed) synthesizes findings across sessions/projects
+6. **Persistence** saves the analysis to `~/.claude-conversations/analyses/`
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `-p`, `--projects` | Comma-separated project filters |
+| `--list` | List saved analyses |
+| `--show <id>` | Show saved analysis by ID (prefix match) |
+| `--model` | Model for analysis (default: claude-sonnet-4-20250514) |
+
 ## Implementation Options
 
 ### Option A: Python CLI (Recommended)
@@ -216,15 +310,20 @@ claude-conversations/
 ├── SPEC.md                 # This file
 ├── claude-conversations    # Bash entry point
 ├── pyproject.toml          # Python project config
+├── .env.example            # API key template
 ├── core/                   # Core library (no CLI/web deps)
 │   ├── __init__.py
 │   ├── parser.py          # JSONL parsing
 │   ├── index.py           # SQLite indexing
-│   └── search.py          # Search functionality
+│   ├── search.py          # Search functionality
+│   ├── agents.py          # Multi-agent RAG analysis
+│   ├── chunking.py        # Token-aware session chunking
+│   └── persistence.py     # Save/load analysis results
 ├── cli/                    # CLI interface
 │   ├── __init__.py
 │   ├── main.py            # Click commands
-│   └── formatter.py       # Rich terminal output
+│   ├── formatter.py       # Rich terminal output
+│   └── tui.py             # Textual interactive TUI
 ├── api/                    # FastAPI server (for web apps)
 │   └── __init__.py
 ├── .claude/skills/c3po/    # Claude Code skill (works on clone)
@@ -238,6 +337,9 @@ claude-conversations/
 ```text
 click>=8.0
 rich>=13.0
+textual>=0.47        # Interactive terminal UI
+anthropic>=0.40      # AI-powered analysis (rag-analyze)
+python-dotenv>=1.0   # .env file support
 ```
 
 ## Example Use Cases
@@ -268,12 +370,12 @@ rich>=13.0
 
 ## Future Enhancements
 
+- [x] ~~Session summarization~~ (via `rag-analyze`)
+- [x] ~~Web UI for browsing~~ (TUI implemented; web UI still possible)
 - [ ] Semantic search (embeddings)
-- [ ] Session summarization
 - [ ] "Similar sessions" recommendation
 - [ ] Export to searchable archive
 - [ ] Integration with Claude Code memory
-- [ ] Web UI for browsing
 
 ## Priority
 

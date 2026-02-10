@@ -42,6 +42,16 @@ claude-conversations recent -n 20
 claude-conversations read abc123 --format md > session.md
 ```
 
+## Configuration
+
+For AI-powered analysis (`rag-analyze` command), create a `.env` file in the project root:
+
+```bash
+ANTHROPIC_API_KEY=your-api-key-here
+```
+
+Get an API key at: https://console.anthropic.com/
+
 ## Quick Start
 
 ```bash
@@ -54,6 +64,9 @@ python3 -m venv .venv
 
 # Search
 ./claude-conversations search "webhook"
+
+# Interactive browsing
+./claude-conversations tui
 ```
 
 ## Commands
@@ -66,10 +79,62 @@ python3 -m venv .venv
 | `read <session-id>` | Display full transcript |
 | `extract <session-id>` | Extract code blocks, files, or tool calls |
 | `recent` | Show recent sessions |
+| `tui` | Launch interactive terminal UI for browsing |
+| `analyze <session-id>` | Analyze session/project for patterns and statistics |
+| `rag-analyze <query>` | AI-powered analysis of conversation history |
 | `stats` | Usage statistics |
 | `reindex` | Rebuild the search index |
 
 See [SPEC.md](SPEC.md) for detailed command documentation.
+
+### `tui` - Interactive Terminal UI
+
+Launch a full interactive browser for navigating projects, sessions, and messages.
+
+```bash
+# Launch TUI
+claude-conversations tui
+
+# Filter to specific projects
+claude-conversations tui -p "BUILT-*"
+claude-conversations tui --project "~^BUILT-git-repos"   # regex filter
+claude-conversations tui -p "webapp"                      # substring match
+```
+
+**Navigation:**
+- Arrow keys to browse projects and sessions
+- `Tab` to switch between panes
+- `/` to focus search
+- `Esc` to go back
+- `q` to quit
+
+### `analyze` - Session & Project Analysis
+
+Statistical analysis of tool usage, file operations, and patterns.
+
+```bash
+# Analyze a single session
+claude-conversations analyze abc12345
+
+# Analyze all sessions in a project
+claude-conversations analyze --project "*webapp*"
+```
+
+### `rag-analyze` - AI-Powered Analysis
+
+Multi-agent system that searches, analyzes patterns, and compares conversations using the Anthropic API. Requires `ANTHROPIC_API_KEY` in `.env`.
+
+```bash
+# Run an analysis
+claude-conversations rag-analyze "How did I implement auth?"
+claude-conversations rag-analyze "Compare risk-analysis flow" -p "*webapp*"
+
+# List saved analyses
+claude-conversations rag-analyze --list
+
+# Show a saved analysis
+claude-conversations rag-analyze --show abc12345
+```
 
 ## How It Works
 
@@ -95,6 +160,23 @@ cp -r .claude/skills/c3po ~/.claude/skills/
 ```
 
 ## Changelog
+
+### 0.6.x
+
+- **New**: Interactive TUI (`tui` command) built with Textual
+  - Arrow key navigation through projects, sessions, messages
+  - Preview pane, search, project filtering (glob, regex, substring)
+- **New**: Multi-agent RAG analysis (`rag-analyze` command)
+  - AI-powered deep analysis of conversation history
+  - Query decomposition, chunk processing, cross-session comparison
+  - Analyses saved to `~/.claude-conversations/analyses/`
+- **New**: `analyze` command for session/project statistics
+  - Tool usage breakdown, file operations, command history
+- New core modules: `agents.py`, `chunking.py`, `persistence.py`
+- New CLI module: `tui.py`
+- New dependencies: `textual`, `anthropic`, `python-dotenv`
+- Color-coded roles and dynamic resize in TUI
+- CSS overflow clipping for TUI list items
 
 ### 0.3.0
 
