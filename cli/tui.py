@@ -10,9 +10,10 @@ from rich.text import Text
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message as TextualMessage
-from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Static
 
 from core import index, search
 from core.parser import Message, Session, get_projects_dir
@@ -81,6 +82,299 @@ def matches_filter(name: str, pattern: str) -> bool:
     else:
         # Substring match
         return pattern.lower() in name.lower()
+
+
+class AnalysisInputScreen(ModalScreen[str]):
+    """Modal screen for entering RAG analysis query."""
+
+    CSS = """
+    AnalysisInputScreen {
+        align: center middle;
+    }
+
+    #analysis-dialog {
+        width: 70;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #analysis-dialog Label {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #analysis-query {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #analysis-buttons {
+        width: 100%;
+        height: 3;
+        align: center middle;
+    }
+
+    #analysis-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="analysis-dialog"):
+            yield Label("RAG Analysis Query")
+            yield Input(
+                placeholder="e.g., Compare auth implementations across projects",
+                id="analysis-query",
+            )
+            yield Label("Enter a question about your conversation history", classes="dim")
+            with Horizontal(id="analysis-buttons"):
+                yield Button("Analyze", variant="primary", id="analyze-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        self.query_one("#analysis-query", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "analyze-btn":
+            query = self.query_one("#analysis-query", Input).value.strip()
+            if query:
+                self.dismiss(query)
+            else:
+                self.notify("Please enter a query", severity="warning")
+        else:
+            self.dismiss("")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        query = event.value.strip()
+        if query:
+            self.dismiss(query)
+
+    def action_cancel(self) -> None:
+        self.dismiss("")
+
+
+class AnalysisProgressScreen(ModalScreen):
+    """Modal screen showing analysis progress."""
+
+    CSS = """
+    AnalysisProgressScreen {
+        align: center middle;
+    }
+
+    #progress-dialog {
+        width: 80;
+        height: 20;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #progress-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #progress-log {
+        height: 1fr;
+        border: solid $primary;
+        padding: 0 1;
+        overflow-y: auto;
+    }
+
+    #progress-status {
+        height: 1;
+        margin-top: 1;
+        text-style: italic;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, query: str, project_filter: str = None) -> None:
+        super().__init__()
+        self._query = query
+        self._project_filter = project_filter
+        self._progress_lines: list[str] = []
+        self._result: str = ""
+        self._session_ids: list[str] = []
+        self._analysis_id: str = ""
+        self._error: str = ""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="progress-dialog"):
+            yield Label(f"Analyzing: {truncate(self._query, 60)}", id="progress-title")
+            with VerticalScroll(id="progress-log"):
+                yield Static("Starting analysis...", id="progress-content")
+            yield Label("Initializing...", id="progress-status")
+
+    def on_mount(self) -> None:
+        self.run_worker(self._run_analysis, exclusive=True)
+
+    def _update_progress(self, stage: str, detail: str) -> None:
+        """Update progress display (called from worker thread)."""
+        stage_icons = {
+            "starting": ">",
+            "decomposing": "?",
+            "searching": "@",
+            "chunking": "#",
+            "analyzing": "*",
+            "comparing": "=",
+            "complete": "!",
+        }
+        icon = stage_icons.get(stage, ".")
+        self._progress_lines.append(f"[{icon}] {detail}")
+        # Keep last 20 lines
+        if len(self._progress_lines) > 20:
+            self._progress_lines = self._progress_lines[-20:]
+
+        # Update UI from main thread
+        self.call_from_thread(self._refresh_progress, stage, detail)
+
+    def _refresh_progress(self, stage: str, detail: str) -> None:
+        """Refresh the progress display (main thread)."""
+        try:
+            content = self.query_one("#progress-content", Static)
+            status = self.query_one("#progress-status", Label)
+            content.update("\n".join(self._progress_lines))
+            status.update(detail)
+        except Exception:
+            pass
+
+    async def _run_analysis(self) -> None:
+        """Worker to run the analysis."""
+        try:
+            from core.agents import run_analysis
+            from core import persistence
+
+            result, session_ids, agents_log = run_analysis(
+                query=self._query,
+                project_filter=self._project_filter,
+                progress=self._update_progress,
+            )
+
+            self._result = result
+            self._session_ids = session_ids
+
+            if result:
+                # Get project names from sessions
+                analyzed_projects = []
+                for sid in session_ids:
+                    try:
+                        info = search.get_session_by_id(sid)
+                        if info and info.project not in analyzed_projects:
+                            analyzed_projects.append(info.project)
+                    except Exception:
+                        pass
+
+                # Save analysis
+                analysis_result = persistence.AnalysisResult.create(
+                    query=self._query,
+                    projects=analyzed_projects,
+                    sessions=session_ids,
+                    result=result,
+                    agents_log=agents_log,
+                )
+                persistence.save_analysis(analysis_result)
+                self._analysis_id = analysis_result.id
+
+            # Transition to results
+            self.call_from_thread(self._show_results)
+
+        except Exception as e:
+            self._error = str(e)
+            self.call_from_thread(self._show_error)
+
+    def _show_results(self) -> None:
+        """Show results screen."""
+        if self._result:
+            self.app.pop_screen()
+            self.app.push_screen(
+                AnalysisResultScreen(self._query, self._result, self._analysis_id)
+            )
+        else:
+            self.app.pop_screen()
+            self.app.notify("No results found", severity="warning")
+
+    def _show_error(self) -> None:
+        """Show error and close."""
+        self.app.pop_screen()
+        self.app.notify(f"Analysis error: {self._error}", severity="error")
+
+
+class AnalysisResultScreen(ModalScreen):
+    """Modal screen for displaying RAG analysis results."""
+
+    CSS = """
+    AnalysisResultScreen {
+        align: center middle;
+    }
+
+    #result-dialog {
+        width: 90%;
+        height: 90%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #result-header {
+        height: 3;
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #result-header Label {
+        width: 1fr;
+    }
+
+    #result-content {
+        height: 1fr;
+        width: 100%;
+        border: solid $primary;
+        padding: 1;
+        overflow-y: auto;
+    }
+
+    #result-footer {
+        height: 3;
+        width: 100%;
+        align: center middle;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    def __init__(self, query: str, result: str, analysis_id: str) -> None:
+        super().__init__()
+        self._query = query
+        self._result = result
+        self._analysis_id = analysis_id
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="result-dialog"):
+            with Horizontal(id="result-header"):
+                yield Label(f"Analysis: {truncate(self._query, 50)}")
+                yield Label(f"ID: {self._analysis_id[:8]}", classes="dim")
+            with VerticalScroll(id="result-content"):
+                yield Static(self._result, id="result-text")
+            with Horizontal(id="result-footer"):
+                yield Button("Close", variant="primary", id="close-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close-btn":
+            self.dismiss()
+
+    def action_close(self) -> None:
+        self.dismiss()
 
 
 class ProjectItem(ListItem):
@@ -509,11 +803,11 @@ class ConversationBrowser(App):
 
     #search-container {
         height: 3;
-        dock: bottom;
+        padding: 0 1;
     }
 
     #search-input {
-        width: 1fr;
+        width: 100%;
     }
 
     ProjectItem {
@@ -549,6 +843,7 @@ class ConversationBrowser(App):
         Binding("escape", "go_back", "Back"),
         Binding("tab", "switch_pane", "Switch Pane"),
         Binding("r", "reindex", "Reindex"),
+        Binding("ctrl+a", "rag_analyze", "RAG Analyze"),
     ]
 
     def __init__(self, project_filter: Optional[str] = None) -> None:
@@ -689,6 +984,23 @@ class ConversationBrowser(App):
             self.notify(f"Reindexed {indexed} sessions ({skipped} unchanged)")
         except Exception as e:
             self.notify(f"Reindex failed: {e}", severity="error")
+
+    def action_rag_analyze(self) -> None:
+        """Open RAG analysis modal."""
+        self.push_screen(AnalysisInputScreen(), self._handle_analysis_query)
+
+    def _handle_analysis_query(self, query: str) -> None:
+        """Handle the query from the analysis input modal."""
+        if not query:
+            return
+
+        # Get current project filter if any
+        project_filter = None
+        if self._current_project:
+            project_filter = self._current_project.name
+
+        # Show progress screen which will run the analysis
+        self.push_screen(AnalysisProgressScreen(query, project_filter))
 
 
 def main(project_filter: Optional[str] = None) -> None:

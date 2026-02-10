@@ -400,6 +400,160 @@ def stats():
     formatter.format_stats(stats_data)
 
 
+@cli.command("rag-analyze")
+@click.argument("query", required=False)
+@click.option("--projects", "-p", help="Comma-separated project filters")
+@click.option("--list", "list_analyses", is_flag=True, help="List saved analyses")
+@click.option("--show", help="Show saved analysis by ID")
+@click.option("--model", default="claude-sonnet-4-20250514", help="Model to use for analysis")
+def rag_analyze(query, projects, list_analyses, show, model):
+    """AI-powered analysis of conversation history.
+
+    Uses a multi-agent system to search, analyze patterns, and compare
+    conversations across your Claude Code history.
+
+    QUERY is your analysis question (e.g., "How did I implement auth?").
+
+    Examples:
+        claude-conversations rag-analyze "Compare risk-analysis flow"
+        claude-conversations rag-analyze "How did I implement auth?" -p "*webapp*"
+        claude-conversations rag-analyze --list
+        claude-conversations rag-analyze --show abc12345
+    """
+    from core import persistence
+    from rich.markdown import Markdown
+
+    # List saved analyses
+    if list_analyses:
+        analyses = persistence.list_analyses()
+        if not analyses:
+            console.print("[yellow]No saved analyses found.[/yellow]")
+            return
+
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("ID", style="cyan")
+        table.add_column("Query")
+        table.add_column("Projects")
+        table.add_column("Date")
+
+        for analysis in analyses:
+            date = analysis.created_at[:10] if analysis.created_at else "N/A"
+            projects_str = ", ".join(analysis.projects[:3]) if analysis.projects else "-"
+            if len(analysis.projects) > 3:
+                projects_str += f" (+{len(analysis.projects) - 3})"
+            table.add_row(
+                analysis.id[:8],
+                formatter.truncate(analysis.query, 40),
+                projects_str,
+                date,
+            )
+
+        console.print(table)
+        return
+
+    # Show specific analysis
+    if show:
+        analysis = persistence.load_analysis(show)
+        if not analysis:
+            console.print(f"[red]Analysis not found:[/red] {show}")
+            sys.exit(1)
+
+        console.print(f"\n[bold cyan]Analysis: {analysis.id[:8]}[/bold cyan]")
+        console.print(f"[dim]Query:[/dim] {analysis.query}")
+        console.print(f"[dim]Date:[/dim] {analysis.created_at}")
+        console.print(f"[dim]Projects:[/dim] {', '.join(analysis.projects) or 'all'}")
+        console.print(f"[dim]Sessions:[/dim] {len(analysis.sessions)}")
+        console.print()
+        console.print(Markdown(analysis.result))
+        return
+
+    # Run new analysis
+    if not query:
+        console.print("[yellow]Provide a query or use --list/--show[/yellow]")
+        sys.exit(1)
+
+    try:
+        from core.agents import run_analysis
+        from rich.live import Live
+        from rich.panel import Panel
+
+        # Create a live display for progress
+        progress_lines = []
+        current_stage = ""
+
+        def progress_callback(stage: str, detail: str):
+            nonlocal current_stage, progress_lines
+            # Add stage header if new stage
+            stage_icons = {
+                "starting": "[cyan]>[/cyan]",
+                "decomposing": "[yellow]?[/yellow]",
+                "searching": "[blue]@[/blue]",
+                "chunking": "[magenta]#[/magenta]",
+                "analyzing": "[green]*[/green]",
+                "comparing": "[cyan]=[/cyan]",
+                "complete": "[green]![/green]",
+            }
+            icon = stage_icons.get(stage, "[dim].[/dim]")
+            progress_lines.append(f"{icon} {detail}")
+            # Keep last 15 lines
+            if len(progress_lines) > 15:
+                progress_lines = progress_lines[-15:]
+
+        console.print(f"\n[bold cyan]RAG Analysis[/bold cyan]: {query}")
+        if projects:
+            console.print(f"[dim]Projects: {projects}[/dim]")
+        console.print()
+
+        with Live(Panel("Starting analysis...", title="Progress"), console=console, refresh_per_second=4) as live:
+            def update_display():
+                content = "\n".join(progress_lines) if progress_lines else "Initializing..."
+                live.update(Panel(content, title="Progress", border_style="blue"))
+
+            # Wrap progress callback to update display
+            def live_progress(stage: str, detail: str):
+                progress_callback(stage, detail)
+                update_display()
+
+            result, session_ids, agents_log = run_analysis(
+                query=query,
+                project_filter=projects,
+                model=model,
+                progress=live_progress,
+            )
+
+        if not result:
+            console.print("[yellow]No analysis results generated.[/yellow]")
+            return
+
+        # Extract project names from sessions
+        analyzed_projects = list(set(
+            s.project for s in [
+                search.get_session_by_id(sid) for sid in session_ids
+            ] if s
+        )) if session_ids else (projects.split(",") if projects else [])
+
+        # Save analysis
+        analysis_result = persistence.AnalysisResult.create(
+            query=query,
+            projects=analyzed_projects,
+            sessions=session_ids,
+            result=result,
+            agents_log=agents_log,
+        )
+        persistence.save_analysis(analysis_result)
+
+        # Display results
+        console.print()
+        console.print(Markdown(result))
+        console.print()
+        console.print(f"[dim]Analysis saved: {analysis_result.id[:8]}[/dim]")
+        console.print(f"[dim]Sessions analyzed: {len(session_ids)}[/dim]")
+
+    except RuntimeError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
 @cli.command()
 @click.option("--force", "-f", is_flag=True, help="Force full reindex")
 def reindex(force):
