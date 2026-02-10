@@ -50,7 +50,7 @@ For AI-powered analysis (`rag-analyze` command), create a `.env` file in the pro
 ANTHROPIC_API_KEY=your-api-key-here
 ```
 
-Get an API key at: https://console.anthropic.com/
+Get an API key at: <https://console.anthropic.com/>
 
 ## Quick Start
 
