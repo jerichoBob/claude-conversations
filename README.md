@@ -164,6 +164,10 @@ cp -r .claude/skills/c3po ~/.claude/skills/
 
 ## Changelog
 
+### 0.7.2
+
+- Apply markdown lint fixes
+
 ### 0.7.1
 
 - Add TUI screenshot to README
