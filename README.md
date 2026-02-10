@@ -164,6 +164,10 @@ cp -r .claude/skills/c3po ~/.claude/skills/
 
 ## Changelog
 
+### 0.7.5
+
+- Add cleaned TUI screenshot
+
 ### 0.7.4
 
 - Remove TUI screenshots 2 and 3
